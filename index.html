@@ -28,6 +28,7 @@
   </div>
   <nav class="topnav" aria-label="Secciones">
     <a href="#sim">Simulación</a>
+    <a href="#registro">Registro</a>
     <a href="#recuperacion">Recuperación</a>
     <a href="#sensibilidad">Sensibilidad</a>
     <a href="#recs">Recomendaciones</a>
@@ -39,6 +40,38 @@
 <div class="layout">
   <aside class="panel" aria-label="Parámetros de la serie">
     <div class="panel-inner">
+      <section class="group data-group">
+        <h2 class="group-title">Datos del nadador</h2>
+        <p class="group-help">Escribe los datos reales y el simulador calcula la duración y la intensidad. Todos los valores de abajo también se pueden escribir directamente en su casilla.</p>
+        <div class="row-2">
+          <div class="field">
+            <label class="label" for="swName">Nombre</label>
+            <input type="text" id="swName" class="txt" placeholder="Opcional" autocomplete="off">
+          </div>
+          <div class="field">
+            <label class="label" for="swAge">Edad</label>
+            <input type="number" id="swAge" class="txt" min="6" max="90" placeholder="años" inputmode="numeric">
+          </div>
+        </div>
+        <div class="row-2">
+          <div class="field">
+            <label class="label" for="swDist">Distancia por rep.</label>
+            <div class="unit-wrap"><input type="number" id="swDist" class="txt" min="5" max="400" step="5" placeholder="25" inputmode="numeric"><span>m</span></div>
+          </div>
+          <div class="field">
+            <label class="label" for="swBest">Tiempo máximo</label>
+            <input type="text" id="swBest" class="txt" placeholder="11.80" inputmode="decimal" autocomplete="off">
+          </div>
+        </div>
+        <div class="field">
+          <label class="label" for="swTarget">Tiempo objetivo por repetición</label>
+          <input type="text" id="swTarget" class="txt" placeholder="vacío = a tope" inputmode="decimal" autocomplete="off">
+          <div class="field-hint">Formatos: 12.4 · 58.3 · 1:05.2. El tiempo máximo es la mejor marca actual del nadador en esa distancia, saliendo desde el agua, igual que en la serie.</div>
+        </div>
+        <div class="data-summary" id="dataSummary" hidden></div>
+        <button type="button" class="link-btn" id="clearData" hidden>Borrar datos y usar controles manuales</button>
+      </section>
+
       <section class="group">
         <h2 class="group-title">Plantillas de serie</h2>
         <div class="presets" id="presets"></div>
@@ -47,17 +80,18 @@
       <section class="group">
         <h2 class="group-title">Esfuerzo</h2>
         <div class="field">
-          <div class="field-head"><label for="work">Duración del esfuerzo</label><output id="workOut"></output></div>
+          <div class="field-head"><label for="work">Duración del esfuerzo</label><input type="text" class="val" id="workOut" inputmode="decimal" autocomplete="off" aria-label="Escribir valor"></div>
           <input type="range" id="work" min="3" max="180" step="1" value="12">
           <div class="field-hint" id="workHint"></div>
+          <div class="lock-note" id="lockNote" hidden>Calculado con los datos del nadador</div>
         </div>
         <div class="field">
-          <div class="field-head"><label for="intensity">Intensidad</label><output id="intensityOut"></output></div>
+          <div class="field-head"><label for="intensity">Intensidad</label><input type="text" class="val" id="intensityOut" inputmode="decimal" autocomplete="off" aria-label="Escribir valor"></div>
           <input type="range" id="intensity" min="50" max="100" step="1" value="100">
           <div class="field-hint">% de la velocidad máxima posible para esa duración</div>
         </div>
         <div class="field">
-          <div class="field-head"><label for="reps">Repeticiones</label><output id="repsOut"></output></div>
+          <div class="field-head"><label for="reps">Repeticiones</label><input type="text" class="val" id="repsOut" inputmode="decimal" autocomplete="off" aria-label="Escribir valor"></div>
           <input type="range" id="reps" min="1" max="30" step="1" value="8">
         </div>
       </section>
@@ -65,7 +99,7 @@
       <section class="group">
         <h2 class="group-title">Descanso</h2>
         <div class="field">
-          <div class="field-head"><label for="rest">Duración del descanso</label><output id="restOut"></output></div>
+          <div class="field-head"><label for="rest">Duración del descanso</label><input type="text" class="val" id="restOut" inputmode="decimal" autocomplete="off" aria-label="Escribir valor"></div>
           <input type="range" id="rest" min="5" max="600" step="5" value="60">
           <div class="ratio-pill">Ratio trabajo:descanso <strong id="ratioOut">1:5</strong></div>
         </div>
@@ -77,7 +111,7 @@
           </div>
         </div>
         <div class="field" id="activeField" hidden>
-          <div class="field-head"><label for="activeInt">Intensidad del activo</label><output id="activeOut"></output></div>
+          <div class="field-head"><label for="activeInt">Intensidad del activo</label><input type="text" class="val" id="activeOut" inputmode="decimal" autocomplete="off" aria-label="Escribir valor"></div>
           <input type="range" id="activeInt" min="15" max="70" step="1" value="35">
           <div class="field-hint">% del VO₂máx aprox. · 30–40 % ≈ nado muy suave</div>
         </div>
@@ -138,9 +172,37 @@
           <span><i class="sw sw-cap"></i>Velocidad disponible</span>
           <span><i class="sw sw-fail"></i>Por debajo del objetivo</span>
           <span><i class="sw sw-pcr"></i>PCr inicial</span>
+          <span><i class="sw sw-real"></i>Real</span>
         </div>
       </div>
       <div class="chart-box"><canvas id="repChart" aria-label="Capacidad por repetición"></canvas></div>
+    </section>
+
+    <section class="card" id="registro">
+      <div class="card-head">
+        <div>
+          <h2>Registro de tiempos reales</h2>
+          <p class="card-sub" id="regSub">Escribe el tiempo que hizo el nadador en cada repetición para compararlo con la predicción del modelo. Para ver tiempos en segundos, completa distancia y tiempo máximo en Datos del nadador.</p>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn ghost" id="fillPred">Copiar predicción</button>
+          <button type="button" class="btn ghost" id="clearReal">Limpiar</button>
+          <button type="button" class="btn" id="exportCsv">Exportar CSV</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="reg-table">
+          <thead><tr><th>Rep.</th><th>Objetivo</th><th>Predicción</th><th>Tiempo real</th><th>Diferencia</th><th>% vel. máx</th></tr></thead>
+          <tbody id="regBody"></tbody>
+        </table>
+      </div>
+      <div class="reg-extra">
+        <div class="field">
+          <label class="label" for="realLa">Lactato medido tras la serie</label>
+          <div class="unit-wrap"><input type="text" id="realLa" class="txt" placeholder="opcional" inputmode="decimal"><span>mmol/L</span></div>
+        </div>
+        <div class="reg-summary" id="regSummary"></div>
+      </div>
     </section>
 
     <div class="grid-2" id="recuperacion">

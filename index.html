@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulador de intervalos máximos · ATP-PCr y lactato</title>
+<meta name="description" content="Calculadora interactiva para estimar fatiga, resíntesis de fosfocreatina y acumulación de lactato en esfuerzos repetidos.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b5f7a'/%3E%3Cpath d='M6 9c4 0 5 14 10 14s6-9 10-9' stroke='white' stroke-width='2.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://api.fontshare.com">
+<link href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@500,700,800&f[]=satoshi@400,500,700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#main">Saltar al contenido</a>
+<header class="topbar">
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 40 40" fill="none" aria-label="Logotipo Intervalo" role="img">
+      <rect x="1.5" y="1.5" width="37" height="37" rx="9" stroke="currentColor" stroke-width="2.5"/>
+      <path d="M8 12c5 0 6 17 12 17s7-11 12-11" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+      <path d="M8 32h24" stroke="currentColor" stroke-width="2" stroke-dasharray="2 4" stroke-linecap="round"/>
+    </svg>
+    <div>
+      <div class="brand-name">Intervalo</div>
+      <div class="brand-sub">Simulador ATP-PCr · lactato · fatiga</div>
+    </div>
+  </div>
+  <nav class="topnav" aria-label="Secciones">
+    <a href="#sim">Simulación</a>
+    <a href="#recuperacion">Recuperación</a>
+    <a href="#sensibilidad">Sensibilidad</a>
+    <a href="#recs">Recomendaciones</a>
+    <a href="#ciencia">Modelo</a>
+  </nav>
+  <button class="theme-toggle" data-theme-toggle aria-label="Cambiar tema"></button>
+</header>
+
+<div class="layout">
+  <aside class="panel" aria-label="Parámetros de la serie">
+    <div class="panel-inner">
+      <section class="group">
+        <h2 class="group-title">Plantillas de serie</h2>
+        <div class="presets" id="presets"></div>
+      </section>
+
+      <section class="group">
+        <h2 class="group-title">Esfuerzo</h2>
+        <div class="field">
+          <div class="field-head"><label for="work">Duración del esfuerzo</label><output id="workOut"></output></div>
+          <input type="range" id="work" min="3" max="180" step="1" value="12">
+          <div class="field-hint" id="workHint"></div>
+        </div>
+        <div class="field">
+          <div class="field-head"><label for="intensity">Intensidad</label><output id="intensityOut"></output></div>
+          <input type="range" id="intensity" min="50" max="100" step="1" value="100">
+          <div class="field-hint">% de la velocidad máxima posible para esa duración</div>
+        </div>
+        <div class="field">
+          <div class="field-head"><label for="reps">Repeticiones</label><output id="repsOut"></output></div>
+          <input type="range" id="reps" min="1" max="30" step="1" value="8">
+        </div>
+      </section>
+
+      <section class="group">
+        <h2 class="group-title">Descanso</h2>
+        <div class="field">
+          <div class="field-head"><label for="rest">Duración del descanso</label><output id="restOut"></output></div>
+          <input type="range" id="rest" min="5" max="600" step="5" value="60">
+          <div class="ratio-pill">Ratio trabajo:descanso <strong id="ratioOut">1:5</strong></div>
+        </div>
+        <div class="field">
+          <span class="label">Tipo de descanso</span>
+          <div class="seg" role="radiogroup" aria-label="Tipo de descanso">
+            <button type="button" role="radio" data-mode="pasivo" aria-checked="true">Pasivo</button>
+            <button type="button" role="radio" data-mode="activo" aria-checked="false">Activo</button>
+          </div>
+        </div>
+        <div class="field" id="activeField" hidden>
+          <div class="field-head"><label for="activeInt">Intensidad del activo</label><output id="activeOut"></output></div>
+          <input type="range" id="activeInt" min="15" max="70" step="1" value="35">
+          <div class="field-hint">% del VO₂máx aprox. · 30–40 % ≈ nado muy suave</div>
+        </div>
+      </section>
+
+      <section class="group">
+        <h2 class="group-title">Atleta y objetivo</h2>
+        <div class="field">
+          <label class="label" for="profile">Perfil del nadador</label>
+          <select id="profile">
+            <option value="velocista">Velocista (50–100 m)</option>
+            <option value="mixto" selected>Mixto (100–200 m)</option>
+            <option value="fondista">Fondista (400 m +)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="label" for="goal">Objetivo de la serie</label>
+          <select id="goal">
+            <option value="auto" selected>Automático (según duración e intensidad)</option>
+            <option value="calidad">Calidad: mantener velocidad máxima</option>
+            <option value="densidad">Densidad: tolerancia a la fatiga</option>
+          </select>
+        </div>
+      </section>
+
+      <div class="set-string" aria-live="polite">
+        <span class="label">Serie</span>
+        <code id="setString"></code>
+      </div>
+    </div>
+  </aside>
+
+  <main id="main" class="content">
+    <section class="kpis" aria-label="Resultados clave" id="kpis"></section>
+
+    <section class="card" id="sim">
+      <div class="card-head">
+        <div>
+          <h2>Simulación temporal de la serie</h2>
+          <p class="card-sub">PCr muscular (% del reposo) y lactato en sangre estimado durante toda la serie y 5 min posteriores. Las franjas sombreadas son esfuerzos.</p>
+        </div>
+        <div class="legend">
+          <span><i class="sw sw-pcr"></i>PCr</span>
+          <span><i class="sw sw-la"></i>Lactato sangre</span>
+          <span><i class="sw sw-work"></i>Esfuerzo</span>
+        </div>
+      </div>
+      <div class="chart-box tall"><canvas id="timeChart" aria-label="Gráfico temporal de PCr y lactato"></canvas></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <h2>Perfil de fatiga por repetición</h2>
+          <p class="card-sub">Velocidad máxima disponible al iniciar cada repetición (% de la del nadador descansado) frente al objetivo. Con intensidad 100 % se exige mantener ≥ 98 %. Barras rojas = objetivo no sostenible.</p>
+        </div>
+        <div class="legend">
+          <span><i class="sw sw-cap"></i>Velocidad disponible</span>
+          <span><i class="sw sw-fail"></i>Por debajo del objetivo</span>
+          <span><i class="sw sw-pcr"></i>PCr inicial</span>
+        </div>
+      </div>
+      <div class="chart-box"><canvas id="repChart" aria-label="Capacidad por repetición"></canvas></div>
+    </section>
+
+    <div class="grid-2" id="recuperacion">
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2>Resíntesis de fosfocreatina</h2>
+            <p class="card-sub">Tras un esfuerzo único como el configurado. Cinética biexponencial ralentizada por acidosis.</p>
+          </div>
+        </div>
+        <div class="chart-box"><canvas id="pcrChart" aria-label="Curva de resíntesis de PCr"></canvas></div>
+        <div class="mini-table" id="pcrTable"></div>
+      </section>
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2>Aclaramiento de lactato</h2>
+            <p class="card-sub">Lactato en sangre tras la serie completa: descanso pasivo frente a activo a la intensidad elegida.</p>
+          </div>
+        </div>
+        <div class="chart-box"><canvas id="laChart" aria-label="Curva de aclaramiento de lactato"></canvas></div>
+        <div class="mini-table" id="laTable"></div>
+      </section>
+    </div>
+
+    <section class="card" id="sensibilidad">
+      <div class="card-head">
+        <div>
+          <h2>Sensibilidad al ratio trabajo:descanso</h2>
+          <p class="card-sub">Misma duración, intensidad y repeticiones; solo varía el descanso. El punto marca tu ratio actual.</p>
+        </div>
+        <div class="seg small" role="radiogroup" aria-label="Métrica de sensibilidad" id="sensMetric">
+          <button type="button" role="radio" data-metric="sds" aria-checked="true">Decremento</button>
+          <button type="button" role="radio" data-metric="pcr" aria-checked="false">PCr pre-última</button>
+          <button type="button" role="radio" data-metric="la" aria-checked="false">Lactato pico</button>
+        </div>
+      </div>
+      <div class="chart-box"><canvas id="sensChart" aria-label="Sensibilidad por ratio"></canvas></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <h2>Mapa de calor: duración × ratio</h2>
+          <p class="card-sub">Sprint decrement score (% de velocidad) para cada combinación, con tu intensidad, repeticiones y tipo de descanso. Verde = calidad preservada; rojo = fatiga alta.</p>
+        </div>
+      </div>
+      <div class="heat-wrap">
+        <canvas id="heatmap" aria-label="Mapa de calor de decremento"></canvas>
+        <div class="heat-tip" id="heatTip" hidden></div>
+      </div>
+      <div class="heat-scale"><span>0 %</span><div class="heat-bar"></div><span>≥ 12 %</span></div>
+    </section>
+
+    <section class="card recs" id="recs">
+      <div class="card-head">
+        <div>
+          <h2>Recomendaciones de recuperación</h2>
+          <p class="card-sub">Generadas automáticamente a partir del modelo para optimizar el rendimiento en esfuerzos repetidos.</p>
+        </div>
+        <span class="badge" id="classBadge"></span>
+      </div>
+      <div class="rec-grid" id="recGrid"></div>
+    </section>
+
+    <section class="card science" id="ciencia">
+      <h2>Cómo funciona el modelo</h2>
+      <div class="sci-grid">
+        <div>
+          <h3>Fosfocreatina</h3>
+          <p>Durante el esfuerzo la PCr cae exponencialmente hacia un mínimo que depende de la intensidad (≈ 45–55 % del reposo tras 6 s máximos y ≈ 15–20 % tras 30 s). En el descanso se resintetiza con dos componentes: uno rápido (semivida ≈ 21 s) y otro lento (&gt; 170 s), como describieron <a href="https://pubmed.ncbi.nlm.nih.gov/1034909/" target="_blank" rel="noopener">Harris et al. (1976)</a>. La acidosis alarga ambas constantes y la recuperación activa las ralentiza por competencia de oxígeno, en línea con <a href="https://vuir.vu.edu.au/8075/" target="_blank" rel="noopener">Spencer et al. (2006)</a>.</p>
+        </div>
+        <div>
+          <h3>Lactato</h3>
+          <p>Modelo de dos compartimentos (músculo → sangre). La producción glucolítica se activa en segundos, crece con la intensidad y la caída de PCr, y se inhibe cuando la acidosis es alta. El aclaramiento pasivo tiene una semivida ≈ 18 min; el activo es óptimo cerca del 35–45 % del VO₂máx, por debajo del umbral, coherente con <a href="https://www.tandfonline.com/doi/full/10.1080/02640414.2010.481721" target="_blank" rel="noopener">Menzies et al. (2010)</a>.</p>
+        </div>
+        <div>
+          <h3>Fatiga</h3>
+          <p>La potencia disponible combina PCr restante (peso mayor en esfuerzos cortos) y acidosis muscular (peso mayor en esfuerzos largos), y se convierte a velocidad con la relación potencia ∝ velocidad³ del avance en el agua: un 27 % menos de potencia equivale a ≈ 10 % menos de velocidad. En potencia, el modelo reproduce aproximadamente la caída de ≈ 25–30 % en 10 × 6 s con 30 s de pausa de <a href="https://pubmed.ncbi.nlm.nih.gov/8226473/" target="_blank" rel="noopener">Gaitanos et al. (1993)</a> y la relación PCr–potencia de <a href="https://journals.physiology.org/doi/abs/10.1152/jappl.1996.80.3.876" target="_blank" rel="noopener">Bogdanis et al. (1996)</a>. El decremento usa la fórmula de <a href="https://www.semanticscholar.org/paper/The-Reliability-and-Validity-of-Fatigue-Measures-An-Glaister-Howatson/bb3343eead8aec0330e995efde0c12a8963ee2b6" target="_blank" rel="noopener">Glaister et al. (2008)</a>.</p>
+        </div>
+        <div>
+          <h3>Natación</h3>
+          <p>En nadadores de élite, la recuperación activa entre series mejoró el rendimiento posterior frente a la pasiva según <a href="https://pubmed.ncbi.nlm.nih.gov/18979341/" target="_blank" rel="noopener">Toubekis et al. (2008)</a>, y su beneficio depende de la duración de la pausa (<a href="https://lida.sport-iat.de/ta/Record/4016032" target="_blank" rel="noopener">Toubekis et al., 2005</a>). Por eso el simulador favorece el activo en pausas largas y el pasivo en pausas cortas de velocidad.</p>
+        </div>
+      </div>
+      <p class="disclaimer">Modelo educativo simplificado calibrado con datos publicados. Las cifras son estimaciones de tendencia, no mediciones: individualiza con lactatos capilares, tiempos reales y percepción del esfuerzo.</p>
+    </section>
+
+    <footer class="foot">Intervalo · simulador educativo para planificación de velocidad</footer>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="model.js"></script>
+<script src="app.js"></script>
+<script data-pplx-inline-edit>
+(function () {
+  if (window === window.top) return;
+
+  const allowedParentOrigins = ["https://www.perplexity.ai","https://perplexity.ai","https://testing.perplexity.ai","https://staging.perplexity.ai","https://*.preview.i.perplexity.ai","http://perplexity.localhost","http://localhost:1420","http://127.0.0.1:1420","http://localhost:3000","http://127.0.0.1:3000","http://localhost:5173","http://127.0.0.1:5173"];
+  const MAX_FONT_BYTES = 500 * 1024;
+  const MAX_TOTAL_FONT_BYTES = 2 * 1024 * 1024;
+  let scrollForwarding = false;
+  let scrollRaf = 0;
+  let trustedTopOrigin = null;
+
+  // Allow entries like "https://*.preview.i.perplexity.ai" — the wildcard
+  // matches a single DNS label (no dots), so "https://*.foo" cannot stretch
+  // across multiple labels.
+  function matchesAllowedOrigin(origin) {
+    if (!origin) return false;
+    for (const entry of allowedParentOrigins) {
+      if (!entry.includes("*")) {
+        if (entry === origin) return true;
+        continue;
+      }
+      const pattern = new RegExp(
+        "^" +
+          entry.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^.]+") +
+          "$",
+      );
+      if (pattern.test(origin)) return true;
+    }
+    return false;
+  }
+
+  // Trust decision: when the sender is same-origin-visible (event.origin is a
+  // real origin like https://www.perplexity.ai) we trust event.origin directly.
+  // When event.origin is "null" (opaque broker srcdoc), we fall back to the
+  // broker's stamped `parentOrigin` to identify the top window. The fallback
+  // is claim-only — we rely on the browser's native `targetOrigin` enforcement
+  // on the response path (see postToTrustedTop) to ensure replies can't be
+  // delivered to anyone but the actual top window of that claimed origin.
+  function getTrustedParentOrigin(event) {
+    const forwardedParentOrigin =
+      typeof event.data.parentOrigin === "string" ? event.data.parentOrigin : null;
+    const parentOrigin = event.origin === "null" ? forwardedParentOrigin : event.origin;
+    return matchesAllowedOrigin(parentOrigin) ? parentOrigin : null;
+  }
+
+  // All responses go to window.top with targetOrigin = the allowlisted origin.
+  // An attacker that iframes us inside their own null-origin broker can claim
+  // any parentOrigin they like, but the browser will drop the reply whenever
+  // the real top's origin doesn't match — so the screenshot never leaves.
+  function postToTrustedTop(message) {
+    if (!trustedTopOrigin) return;
+    try {
+      window.top.postMessage(message, trustedTopOrigin);
+    } catch (_error) {}
+  }
+
+  function inlineAll(original, clone) {
+    if (original.nodeType !== 1 || clone.nodeType !== 1) return;
+
+    try {
+      const computedStyle = getComputedStyle(original);
+      // cssText on a computed style is the serialized declaration in modern
+      // Chromium/Safari — a single read beats enumerating ~400 longhand
+      // properties. Firefox returns "" here, so we fall back on empty.
+      const serialized = computedStyle.cssText;
+      if (serialized) {
+        clone.style.cssText = serialized;
+      } else {
+        const parts = new Array(computedStyle.length);
+        for (let index = 0; index < computedStyle.length; index += 1) {
+          const property = computedStyle[index];
+          parts[index] = `${property}:${computedStyle.getPropertyValue(property)};`;
+        }
+        clone.style.cssText = parts.join("");
+      }
+    } catch (_error) {}
+
+    const originalChildren = original.children;
+    const clonedChildren = clone.children;
+    for (
+      let index = 0;
+      index < originalChildren.length && index < clonedChildren.length;
+      index += 1
+    ) {
+      inlineAll(originalChildren[index], clonedChildren[index]);
+    }
+  }
+
+  function extractFontUrl(srcValue) {
+    const matches = [
+      ...srcValue.matchAll(
+        /url\(["']?([^"')]+)["']?\)(?:\s*format\(["']?([^"')]+)["']?\))?/gi,
+      ),
+    ];
+    if (matches.length === 0) return null;
+    const woff2 = matches.find((m) => m[2] && m[2].toLowerCase().includes("woff2"));
+    if (woff2) return woff2[1];
+    const woff = matches.find((m) => m[2] && m[2].toLowerCase().includes("woff"));
+    if (woff) return woff[1];
+    return matches[0][1];
+  }
+
+  // Cache resolved font URL -> data URI across captures. Fonts on a page
+  // essentially never change, and a batch run emits multiple captures back to
+  // back — without this we'd refetch + re-base64 every time.
+  const fontDataUriCache = new Map();
+  const SRC_DECLARATION_RE = /src\s*:\s*[^;}]+/i;
+
+  async function fetchAsDataUri(url) {
+    if (fontDataUriCache.has(url)) return fontDataUriCache.get(url);
+    let dataUri = null;
+    try {
+      const response = await fetch(url, { mode: "cors", credentials: "omit" });
+      if (response.ok) {
+        const blob = await response.blob();
+        if (blob.size <= MAX_FONT_BYTES) {
+          dataUri = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () =>
+              resolve(typeof reader.result === "string" ? reader.result : null);
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(blob);
+          });
+        }
+      }
+    } catch (_error) {
+      dataUri = null;
+    }
+    fontDataUriCache.set(url, dataUri);
+    return dataUri;
+  }
+
+  function collectFontFaceRuleTexts() {
+    const rules = [];
+    for (const sheet of document.styleSheets) {
+      let cssRules;
+      try {
+        cssRules = sheet.cssRules;
+      } catch (_error) {
+        continue;
+      }
+      if (!cssRules) continue;
+      for (const rule of cssRules) {
+        const cssText = rule.cssText || "";
+        if (cssText.startsWith("@font-face")) rules.push(cssText);
+      }
+    }
+    return rules;
+  }
+
+  async function buildInlinedFontCss() {
+    const ruleTexts = collectFontFaceRuleTexts();
+    if (ruleTexts.length === 0) return null;
+
+    const resolved = ruleTexts.map((cssText) => {
+      if (!SRC_DECLARATION_RE.test(cssText)) return null;
+      const srcMatch = cssText.match(/src\s*:\s*([^;}]+)[;}]/i);
+      if (!srcMatch) return null;
+      const url = extractFontUrl(srcMatch[1]);
+      if (!url) return null;
+      try {
+        return { cssText, url: new URL(url, document.baseURI).href };
+      } catch (_error) {
+        return null;
+      }
+    });
+
+    const dataUris = await Promise.all(
+      resolved.map((entry) => (entry ? fetchAsDataUri(entry.url) : Promise.resolve(null))),
+    );
+
+    const inlined = [];
+    let totalBytes = 0;
+    for (let index = 0; index < resolved.length; index += 1) {
+      const entry = resolved[index];
+      const dataUri = dataUris[index];
+      if (!entry || !dataUri) continue;
+      const approxBytes = dataUri.length * 0.75;
+      if (totalBytes + approxBytes > MAX_TOTAL_FONT_BYTES) break;
+      totalBytes += approxBytes;
+      inlined.push(entry.cssText.replace(SRC_DECLARATION_RE, `src: url("${dataUri}")`));
+    }
+    return inlined.length > 0 ? inlined.join("\n") : null;
+  }
+
+  function stripExternal(clone) {
+    const images = clone.querySelectorAll("img");
+    for (let index = 0; index < images.length; index += 1) {
+      const src = images[index].getAttribute("src");
+      if (src && !src.startsWith("data:")) images[index].removeAttribute("src");
+    }
+
+    const elements = clone.querySelectorAll("*");
+    for (let index = 0; index < elements.length; index += 1) {
+      const style = elements[index].style.cssText;
+      if (style && style.includes("url(")) {
+        elements[index].style.cssText = style.replace(
+          /url\(["']?(?!data:)[^)"']*["']?\)/gi,
+          "none",
+        );
+      }
+    }
+  }
+
+  function emitScroll() {
+    scrollRaf = 0;
+    if (!scrollForwarding) return;
+    postToTrustedTop({
+      type: "INLINE_EDIT_SCROLL",
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
+    });
+  }
+
+  window.addEventListener(
+    "scroll",
+    function () {
+      if (!scrollForwarding || scrollRaf) return;
+      scrollRaf = requestAnimationFrame(emitScroll);
+    },
+    { passive: true, capture: true },
+  );
+
+  async function handleCaptureRequest(event) {
+    const requestId = event.data.requestId;
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+
+    function postResult(dataUrl) {
+      postToTrustedTop({
+        type: "INLINE_EDIT_SCREENSHOT_RESULT",
+        requestId,
+        dataUrl,
+        scrollX,
+        scrollY,
+      });
+    }
+
+    try {
+      // Wait for any pending web fonts to resolve so both inline metrics and
+      // the @font-face inlining below see the same loaded faces.
+      if (document.fonts && document.fonts.ready) {
+        try {
+          await document.fonts.ready;
+        } catch (_error) {}
+      }
+
+      const clone = document.documentElement.cloneNode(true);
+      inlineAll(document.documentElement, clone);
+
+      const removedNodes = clone.querySelectorAll("script,link[rel=\"stylesheet\"],style");
+      for (let index = 0; index < removedNodes.length; index += 1) {
+        removedNodes[index].remove();
+      }
+
+      stripExternal(clone);
+
+      // Re-embed web fonts as data-URI @font-face rules so the SVG rasterizer
+      // can resolve them — external font URLs aren't fetched during
+      // foreignObject rendering, which would otherwise force a fallback face
+      // and change text metrics.
+      const inlinedFontCss = await buildInlinedFontCss();
+      if (inlinedFontCss) {
+        const styleEl = document.createElement("style");
+        styleEl.textContent = inlinedFontCss;
+        const head = clone.querySelector("head");
+        if (head) head.appendChild(styleEl);
+        else clone.insertBefore(styleEl, clone.firstChild);
+      }
+
+      const html = new XMLSerializer().serializeToString(clone);
+      const svg =
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">` +
+        '<foreignObject width="100%" height="100%">' +
+        `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${width}px;height:${height}px;overflow:hidden">` +
+        `<div style="position:relative;left:-${scrollX}px;top:-${scrollY}px">` +
+        html +
+        "</div></div></foreignObject></svg>";
+      const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+      const image = new Image();
+      image.onload = function () {
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d").drawImage(image, 0, 0);
+        postResult(canvas.toDataURL("image/png"));
+      };
+      image.onerror = function () {
+        postResult(null);
+      };
+      image.src = svgUrl;
+    } catch (_error) {
+      postResult(null);
+    }
+  }
+
+  window.addEventListener("message", function (event) {
+    if (!event.data) return;
+    // Only accept messages from the direct parent frame. Blocks sibling /
+    // unrelated-window postMessage senders that could otherwise reach us.
+    if (event.source !== window.parent) return;
+
+    const trustedParentOrigin = getTrustedParentOrigin(event);
+    if (!trustedParentOrigin) return;
+    trustedTopOrigin = trustedParentOrigin;
+
+    if (event.data.type === "INLINE_EDIT_SCROLL_START") {
+      scrollForwarding = true;
+      emitScroll();
+      return;
+    }
+
+    if (event.data.type === "INLINE_EDIT_SCROLL_STOP") {
+      scrollForwarding = false;
+      if (scrollRaf) cancelAnimationFrame(scrollRaf);
+      scrollRaf = 0;
+      return;
+    }
+
+    if (event.data.type !== "INLINE_EDIT_CAPTURE_REQUEST") return;
+
+    handleCaptureRequest(event);
+  });
+})();
+
+
+</script></body>
+</html>

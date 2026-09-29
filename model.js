@@ -4,15 +4,26 @@ const PROFILES = {
   mixto:     { name:'Mixto',     pcrTauMul:0.9, glyMul:1.0,  clrMul:1.0, pcrShare:1.0 },
   fondista:  { name:'Fondista',  pcrTauMul:0.8, glyMul:0.8,  clrMul:1.2, pcrShare:0.9 },
 };
+// Ajustes por edad: niños resintetizan PCr más rápido y producen menos lactato; másters recuperan más lento
+function ageFactors(age){
+  if(age==null||isNaN(age)) return {pcr:1,gly:1,clr:1,label:'Adulto'};
+  if(age<12) return {pcr:0.75,gly:0.6,clr:1.2,label:'Infantil (< 12)'};
+  if(age<15) return {pcr:0.85,gly:0.75,clr:1.1,label:'Púber (12–14)'};
+  if(age<18) return {pcr:0.95,gly:0.9,clr:1.05,label:'Juvenil (15–17)'};
+  if(age<35) return {pcr:1,gly:1,clr:1,label:'Adulto (18–34)'};
+  if(age<50) return {pcr:1.1,gly:0.95,clr:0.95,label:'Máster (35–49)'};
+  return {pcr:1.2,gly:0.85,clr:0.9,label:'Máster (50 +)'};
+}
 function clamp(x,a,b){return Math.max(a,Math.min(b,x));}
 function intensityFactor(I){ return Math.pow(clamp((I-55)/45,0,1),1.6); } // 0..1
 function simulate(p){
-  const {work, intensity:I, rest, reps, mode, activeInt=35, profile='mixto', dt=0.5, lite=false, post=null} = p;
+  const {work, intensity:I, rest, reps, mode, activeInt=35, profile='mixto', dt=0.5, lite=false, post=null, age=null} = p;
+  const ag = ageFactors(age);
   const pr = PROFILES[profile];
   const k = intensityFactor(I);
   const dmax = 0.88*k;                     // depleción máxima de PCr
   const tauDep = 7 + 20*(1-k);             // s
-  const a = 0.7, tau1 = 30*pr.pcrTauMul, tau2 = 170*pr.pcrTauMul;
+  const a = 0.7, tau1 = 30*pr.pcrTauMul*ag.pcr, tau2 = 170*pr.pcrTauMul*ag.pcr;
   // lactato: M = músculo (mmol/L equiv), B = sangre
   const base = 1.2;
   let pcr=1, Df=0, Ds=0, M=base, B=base;
@@ -22,7 +33,7 @@ function simulate(p){
   // aclaramiento: pasivo t1/2 ~ 18 min; activo óptimo ~ 35-45% → t1/2 ~ 7 min
   const clrActive = act ? (1 - Math.pow((actK-40)/40,2)*0.8) : 0;  // 0..1 máx en 40%
   const halfClr = act ? (18*60)/(1+1.6*clamp(clrActive,0,1)) : 18*60;
-  const kclr = Math.LN2/halfClr*pr.clrMul;
+  const kclr = Math.LN2/halfClr*pr.clrMul*ag.clr;
   const series=[]; const repsOut=[];
   let t=0, tEffort=0, peakB=base;
   const total = reps*work + (reps-1)*rest + (post!==null?post:Math.max(rest, 300));
@@ -51,7 +62,7 @@ function simulate(p){
       const act0 = 1-Math.exp(-phaseT/6);
       const decay = 0.55+0.45*Math.exp(-phaseT/60);
       const inhib = 1 - clamp((M-6)/16,0,0.85);
-      const P = 2.1*pr.glyMul*Math.pow(k,2)*act0*decay*inhib*(0.4+0.6*(1-pcr));
+      const P = 2.1*pr.glyMul*ag.gly*Math.pow(k,2)*act0*decay*inhib*(0.4+0.6*(1-pcr));
       M += P*dt;
     } else {
       const acidMul = 1 + 0.08*Math.max(0,M-4);            // acidosis ralentiza resíntesis
@@ -79,5 +90,5 @@ function simulate(p){
   const peakLa = peakB;
   return {series, reps:repsOut, sds, fi:(1-last/best)*100, peakLa};
 }
-if(typeof window!=='undefined'){window.PhysioModel={simulate,PROFILES,intensityFactor};}
+if(typeof window!=='undefined'){window.PhysioModel={simulate,PROFILES,intensityFactor,ageFactors};}
 if(typeof module!=='undefined') module.exports={simulate,PROFILES,intensityFactor};

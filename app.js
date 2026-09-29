@@ -16,7 +16,9 @@ paintToggle();
 toggle.addEventListener('click', () => { theme = theme === 'dark' ? 'light' : 'dark'; root.setAttribute('data-theme', theme); paintToggle(); rebuildCharts(); });
 
 /* ---------- Estado ---------- */
-const state = { work: 12, intensity: 100, reps: 8, rest: 60, mode: 'pasivo', activeInt: 35, profile: 'mixto', goal: 'auto' };
+const state = { work: 12, intensity: 100, reps: 8, rest: 60, mode: 'pasivo', activeInt: 35, profile: 'mixto', goal: 'auto', age: null };
+const sw = { name: '', dist: null, best: null, target: null, real: [], realLa: null };
+const dataMode = () => sw.dist > 0 && sw.best > 0;
 
 const PRESETS = [
   { id: 'vel', label: 'Velocidad pura 6×15 m / 2:30', s: { work: 7, intensity: 100, reps: 6, rest: 150, mode: 'pasivo' } },
@@ -38,6 +40,16 @@ const approxDist = (t) => { const v = Math.max(1.45, 1.95 - 0.0035 * t); return 
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const params = (over = {}) => ({ ...state, ...over });
 const effTarget = (I) => Math.min(I, 98);
+// "12.4", "58.3", "1:05.2" → segundos
+function parseTime(v) {
+  if (v == null) return null; v = String(v).trim().replace(',', '.').replace(/\s*(s|seg)$/i, '');
+  if (!v) return null;
+  const p = v.split(':');
+  if (p.length > 3 || p.some(x => x === '' || isNaN(+x))) return NaN;
+  return p.reduce((acc, x) => acc * 60 + +x, 0);
+}
+const fmtSec = (t) => { if (t == null || isNaN(t)) return '—'; if (t < 60) return t.toFixed(2); const m = Math.floor(t / 60); return `${m}:${(t - m * 60).toFixed(2).padStart(5, '0')}`; };
+const r1 = (x) => Math.round(x * 10) / 10;
 const sustainedCount = (res, I) => { const T = effTarget(I); let n = 0; for (const r of res.reps) { if (r.cap >= T - 0.05) n++; else break; } return n; };
 
 function classify(work, I, rest = state.rest) {
@@ -69,7 +81,11 @@ const presetBox = $('#presets');
 PRESETS.forEach(p => {
   const b = document.createElement('button');
   b.type = 'button'; b.className = 'preset'; b.textContent = p.label; b.dataset.id = p.id; b.setAttribute('aria-pressed', 'false');
-  b.addEventListener('click', () => { Object.assign(state, { activeInt: 35 }, p.s); syncInputs(); markPreset(p.id); schedule(); });
+  b.addEventListener('click', () => {
+    if (dataMode()) { const { work, intensity, ...rest } = p.s; Object.assign(state, { activeInt: 35 }, rest); sw.target = intensity >= 100 ? null : r1(sw.best * 100 / intensity * 100) / 100; $('#swTarget').value = sw.target ? fmtSec(sw.target) : ''; applyData(); }
+    else Object.assign(state, { activeInt: 35 }, p.s);
+    syncInputs(); markPreset(p.id); schedule();
+  });
   presetBox.appendChild(b);
 });
 function markPreset(id) { $$('.preset').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.id === id))); }
@@ -80,19 +96,80 @@ function syncInputs() {
   $('#profile').value = state.profile; $('#goal').value = state.goal;
   updateLabels();
 }
+function setVal(id, v) { const el = $('#' + id); if (document.activeElement !== el) el.value = v; }
 function updateLabels() {
-  $('#workOut').textContent = fmtTime(state.work);
-  $('#workHint').textContent = `≈ ${approxDist(state.work)} m de crol a máxima velocidad (nadador entrenado)`;
-  $('#intensityOut').textContent = state.intensity + ' %';
-  $('#repsOut').textContent = state.reps;
-  $('#restOut').textContent = fmtTime(state.rest);
-  $('#activeOut').textContent = state.activeInt + ' %';
+  const dm = dataMode();
+  setVal('workOut', state.work < 60 ? `${r1(state.work)} s` : fmtClock(state.work));
+  $('#workHint').textContent = dm ? `${sw.dist} m en ${fmtSec(state.work)} s` : `≈ ${approxDist(state.work)} m de crol a máxima velocidad (nadador entrenado)`;
+  setVal('intensityOut', r1(state.intensity) + ' %');
+  setVal('repsOut', state.reps);
+  setVal('restOut', state.rest < 60 ? `${state.rest} s` : fmtClock(state.rest));
+  setVal('activeOut', state.activeInt + ' %');
   $('#ratioOut').textContent = ratioStr(state.work, state.rest);
   $('#activeField').hidden = state.mode !== 'activo';
+  ['work', 'intensity'].forEach(k => { inputs[k].disabled = dm; $('#' + k + 'Out').disabled = dm; });
+  $('#lockNote').hidden = !dm;
   for (const k in inputs) setFill(inputs[k]);
-  $('#setString').textContent = `${state.reps} × ${fmtTime(state.work)} (≈${approxDist(state.work)} m) @ ${state.intensity} % · desc. ${fmtClock(state.rest)} ${state.mode}${state.mode === 'activo' ? ' ' + state.activeInt + ' %' : ''} · ${ratioStr(state.work, state.rest)}`;
+  const who = [sw.name, state.age ? state.age + ' años' : ''].filter(Boolean).join(', ');
+  const dist = dm ? `${sw.dist} m` : `≈${approxDist(state.work)} m`;
+  const tgt = dm ? ` en ${fmtSec(state.work)}` : '';
+  $('#setString').textContent = `${who ? who + ' · ' : ''}${state.reps} × ${dist}${tgt} (${fmtTime(state.work)}) @ ${r1(state.intensity)} % · desc. ${fmtClock(state.rest)} ${state.mode}${state.mode === 'activo' ? ' ' + state.activeInt + ' %' : ''} · ${ratioStr(state.work, state.rest)}`;
+  // resumen de datos
+  const ds = $('#dataSummary');
+  ds.hidden = !dm; $('#clearData').hidden = !(dm || sw.name || state.age);
+  if (dm) {
+    const vmax = sw.dist / sw.best, vt = sw.dist / state.work;
+    const ag = window.PhysioModel.ageFactors(state.age);
+    ds.innerHTML = `<div><span>Vel. máx</span><b>${vmax.toFixed(2)} m/s</b></div><div><span>Vel. objetivo</span><b>${vt.toFixed(2)} m/s</b></div><div><span>Intensidad</span><b>${r1(state.intensity)} %</b></div>` +
+      (state.age ? `<div style="grid-column:1/-1"><span>Ajuste por edad: ${ag.label}</span></div>` : '');
+  }
 }
 for (const k in inputs) inputs[k].addEventListener('input', e => { state[k] = +e.target.value; markPreset(null); updateLabels(); schedule(); });
+// Casillas editables junto a cada control
+const VALS = {
+  workOut: { k: 'work', parse: parseTime, min: 2, max: 240 },
+  intensityOut: { k: 'intensity', parse: v => parseFloat(String(v).replace(',', '.')), min: 40, max: 100 },
+  repsOut: { k: 'reps', parse: v => Math.round(parseFloat(v)), min: 1, max: 40 },
+  restOut: { k: 'rest', parse: parseTime, min: 5, max: 900 },
+  activeOut: { k: 'activeInt', parse: v => parseFloat(String(v).replace(',', '.')), min: 15, max: 70 },
+};
+for (const id in VALS) {
+  const el = $('#' + id), cfg = VALS[id];
+  el.addEventListener('focus', () => el.select());
+  el.addEventListener('keydown', e => { if (e.key === 'Enter') el.blur(); if (e.key === 'Escape') { el.value = ''; el.blur(); } });
+  el.addEventListener('change', () => {
+    const v = cfg.parse(el.value.replace('%', '').trim());
+    if (v != null && !isNaN(v)) { state[cfg.k] = clamp(v, cfg.min, cfg.max); markPreset(null); if (inputs[cfg.k]) inputs[cfg.k].value = state[cfg.k]; schedule(); }
+    el.blur(); updateLabels();
+  });
+  el.addEventListener('blur', () => updateLabels());
+}
+// Datos del nadador
+function applyData() {
+  if (!dataMode()) return;
+  const t = sw.target && sw.target >= sw.best ? sw.target : sw.best;
+  state.work = t;
+  state.intensity = Math.min(100, sw.best / t * 100);
+  inputs.work.value = state.work; inputs.intensity.value = state.intensity;
+}
+function readData() {
+  sw.name = $('#swName').value.trim();
+  const age = parseInt($('#swAge').value, 10); state.age = isNaN(age) ? null : clamp(age, 6, 90);
+  const d = parseFloat($('#swDist').value); sw.dist = isNaN(d) || d <= 0 ? null : d;
+  const b = parseTime($('#swBest').value); $('#swBest').classList.toggle('invalid', Number.isNaN(b) || (b != null && b <= 0));
+  sw.best = b > 0 ? b : null;
+  const t = parseTime($('#swTarget').value);
+  const badT = Number.isNaN(t) || (t != null && sw.best && t < sw.best);
+  $('#swTarget').classList.toggle('invalid', badT);
+  sw.target = t > 0 && !badT ? t : null;
+  applyData(); markPreset(null); updateLabels(); schedule();
+}
+['swName', 'swAge', 'swDist', 'swBest', 'swTarget'].forEach(id => { $('#' + id).addEventListener('change', readData); $('#' + id).addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); }); });
+$('#clearData').addEventListener('click', () => {
+  ['swName', 'swAge', 'swDist', 'swBest', 'swTarget'].forEach(id => { $('#' + id).value = ''; $('#' + id).classList.remove('invalid'); });
+  Object.assign(sw, { name: '', dist: null, best: null, target: null }); state.age = null; updateLabels(); schedule();
+});
+
 $$('.seg[aria-label="Tipo de descanso"] button').forEach(b => b.addEventListener('click', () => { state.mode = b.dataset.mode; markPreset(null); syncInputs(); schedule(); }));
 $('#profile').addEventListener('change', e => { state.profile = e.target.value; schedule(); });
 $('#goal').addEventListener('change', e => { state.goal = e.target.value; schedule(); });
@@ -163,11 +240,12 @@ function buildCharts() {
   o.scales.y.title = axisTitle('% de la velocidad máxima'); o.scales.y.max = 101;
   o.scales.x.grid.display = false; o.scales.x.title = axisTitle('Repetición');
   o.scales.y1 = { position: 'right', min: 0, max: 100, grid: { display: false }, border: { display: false }, ticks: { color: muted, padding: 6 }, title: axisTitle('PCr inicial (% reposo)') };
-  o.plugins.tooltip.callbacks = { title: i => 'Repetición ' + i[0].label, label: c => [' Velocidad disponible', ' Objetivo', ' PCr inicial'][c.datasetIndex] + ': ' + c.parsed.y.toFixed(1) + ' %' };
+  o.plugins.tooltip.callbacks = { title: i => 'Repetición ' + i[0].label, label: c => c.parsed.y == null ? null : [' Velocidad disponible', ' Objetivo', ' PCr inicial', ' Real'][c.datasetIndex] + ': ' + c.parsed.y.toFixed(1) + ' %' };
   charts.rep = new Chart($('#repChart'), { data: { labels: [], datasets: [
     { type: 'bar', data: [], backgroundColor: [], borderRadius: 4, maxBarThickness: 38, order: 3 },
     { type: 'line', data: [], borderColor: primary, borderDash: [6, 4], borderWidth: 1.6, pointRadius: 0, order: 1 },
-    { type: 'line', data: [], borderColor: pcr, borderWidth: 2, pointRadius: 3, pointBackgroundColor: pcr, tension: 0.2, order: 2, yAxisID: 'y1' }
+    { type: 'line', data: [], borderColor: pcr, borderWidth: 2, pointRadius: 3, pointBackgroundColor: pcr, tension: 0.2, order: 2, yAxisID: 'y1' },
+    { type: 'line', data: [], showLine: false, pointRadius: 6, pointHoverRadius: 7, pointBackgroundColor: la, pointBorderColor: css('--color-surface'), pointBorderWidth: 2, order: 0 }
   ] }, options: o });
 
   // PCr
@@ -235,7 +313,8 @@ function renderMain() {
   charts.rep.data.datasets[0].backgroundColor = res.reps.map(r => r.cap >= effTarget(state.intensity) - 0.05 ? cap : fail);
   charts.rep.data.datasets[1].data = res.reps.map(() => effTarget(state.intensity));
   charts.rep.data.datasets[2].data = res.reps.map(r => r.pcr);
-  const minY = Math.min(...res.reps.map(r => r.cap), effTarget(state.intensity));
+  charts.rep.data.datasets[3].data = realPct(res.reps.length);
+  const minY = Math.min(...res.reps.map(r => r.cap), effTarget(state.intensity), ...charts.rep.data.datasets[3].data.filter(v => v != null));
   charts.rep.options.scales.y.min = Math.max(0, Math.floor((minY - 3) / 2) * 2);
   charts.rep.update();
 
@@ -504,6 +583,120 @@ function renderRecs(ctx) {
   $('#recGrid').innerHTML = recs.map(r => `<article class="rec ${r.s}"><h3><i class="dot ${r.s}"></i>${r.h}</h3>${r.body}</article>`).join('');
 }
 
+/* ---------- Registro de tiempos reales ---------- */
+function realPct(n) {
+  const r = sw.real.slice(0, n);
+  const valid = r.filter(v => v > 0);
+  if (!valid.length) return Array(n).fill(null);
+  const ref = dataMode() ? sw.best : Math.min(...valid);
+  return Array.from({ length: n }, (_, i) => r[i] > 0 ? ref / r[i] * 100 : null);
+}
+function predTimes(res) {
+  const T = effTarget(state.intensity);
+  return res.reps.map(r => {
+    if (!dataMode()) return null;
+    return r.cap >= T - 0.05 ? state.work : sw.best * 100 / Math.min(r.cap, state.intensity);
+  });
+}
+let regRows = -1, regDM = null;
+function renderRegistro() {
+  const res = lastMain; if (!res) return;
+  const n = res.reps.length, dm = dataMode();
+  const body = $('#regBody');
+  if (regRows !== n || regDM !== dm) {
+    body.innerHTML = res.reps.map((r, i) => `<tr><td>${i + 1}</td><td data-c="obj"></td><td data-c="pred"></td><td><input type="text" class="txt" data-i="${i}" inputmode="decimal" placeholder="${dm ? 'ss.cc' : 's'}" value="${sw.real[i] > 0 ? fmtSec(sw.real[i]) : ''}" aria-label="Tiempo real repetición ${i + 1}"></td><td data-c="diff"></td><td data-c="pct"></td></tr>`).join('');
+    regRows = n; regDM = dm;
+    $$('input[data-i]', body).forEach(inp => {
+      inp.addEventListener('change', () => {
+        const v = parseTime(inp.value); const i = +inp.dataset.i;
+        inp.classList.toggle('invalid', Number.isNaN(v));
+        sw.real[i] = v > 0 ? v : null; if (v > 0) inp.value = fmtSec(v);
+        updateRegistro(); updateRealOnChart();
+      });
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') { const nx = body.querySelector(`input[data-i="${+inp.dataset.i + 1}"]`); inp.blur(); if (nx) nx.focus(); } });
+    });
+  }
+  $('#regSub').textContent = dm
+    ? `Escribe el tiempo que hizo ${sw.name || 'el nadador'} en cada repetición de ${sw.dist} m. La predicción usa su tiempo máximo (${fmtSec(sw.best)} s) y la fatiga estimada por el modelo.`
+    : 'Escribe el tiempo que hizo el nadador en cada repetición para compararlo con el modelo. Para ver predicciones en segundos, completa distancia y tiempo máximo en Datos del nadador.';
+  updateRegistro();
+}
+function updateRegistro() {
+  const res = lastMain; const n = res.reps.length, dm = dataMode();
+  const pred = predTimes(res), pct = realPct(n);
+  const rows = $$('#regBody tr');
+  rows.forEach((tr, i) => {
+    const r = res.reps[i], real = sw.real[i];
+    tr.querySelector('[data-c="obj"]').textContent = dm ? fmtSec(state.work) : `${r1(state.intensity)} %`;
+    tr.querySelector('[data-c="pred"]').textContent = dm ? fmtSec(pred[i]) : `${Math.min(r.cap, state.intensity).toFixed(1)} %`;
+    const dc = tr.querySelector('[data-c="diff"]');
+    if (dm && real > 0) { const d = real - pred[i]; dc.textContent = (d >= 0 ? '+' : '') + d.toFixed(2) + ' s'; dc.className = Math.abs(d) < 0.15 ? '' : d > 0 ? 'bad' : 'good'; }
+    else { dc.textContent = '—'; dc.className = ''; }
+    tr.querySelector('[data-c="pct"]').textContent = pct[i] != null ? pct[i].toFixed(1) + ' %' : '—';
+  });
+  // resumen
+  const vals = sw.real.slice(0, n).filter(v => v > 0);
+  const box = $('#regSummary');
+  if (vals.length < 2) { box.innerHTML = '<p>Introduce al menos dos tiempos para calcular la fatiga real y compararla con la predicción.</p>'; return; }
+  const bestRep = Math.min(...vals);
+  const sdsReal = (vals.reduce((a, b) => a + b, 0) / (bestRep * vals.length) - 1) * 100;
+  const fiReal = (vals[vals.length - 1] / vals[0] - 1) * 100;
+  const k = vals.length;
+  const capsK = res.reps.slice(0, k).map(r => Math.min(r.cap, state.intensity));
+  const sdsModel = (1 - capsK.reduce((a, b) => a + b, 0) / (Math.max(...capsK) * k)) * 100;
+  const la = parseFloat(String($('#realLa').value).replace(',', '.'));
+  const chips = [
+    ['Decremento real', sdsReal.toFixed(1) + ' %'], ['Decremento modelo', sdsModel.toFixed(1) + ' %'],
+    ['Caída 1.ª → última', (fiReal >= 0 ? '+' : '') + fiReal.toFixed(1) + ' %'], ['Mejor repetición', fmtSec(bestRep) + ' s']
+  ];
+  if (!isNaN(la)) chips.push(['Lactato real / modelo', `${la.toFixed(1)} / ${res.peakLa.toFixed(1)}`]);
+  const gap = sdsReal - sdsModel;
+  let msg;
+  if (Math.abs(gap) <= 1) msg = 'Los tiempos reales coinciden con el modelo: el perfil elegido representa bien a este nadador.';
+  else if (gap > 1) msg = `El nadador se fatiga más de lo previsto (+${gap.toFixed(1)} puntos). Alarga el descanso, reduce repeticiones o calibra el perfil.`;
+  else msg = `El nadador recupera mejor de lo previsto (${gap.toFixed(1)} puntos). Puedes acortar el descanso o calibrar el perfil.`;
+  box.innerHTML = `<div class="chips">${chips.map(([a, b]) => `<div class="chip">${a}<b>${b}</b></div>`).join('')}</div><p>${msg}</p>${Math.abs(gap) > 1 ? '<button type="button" class="btn ghost" id="calib" style="margin-top:.5rem">Calibrar perfil con estos tiempos</button>' : ''}`;
+  const cb = $('#calib');
+  if (cb) cb.addEventListener('click', () => {
+    let best = null;
+    for (const p of ['velocista', 'mixto', 'fondista']) {
+      const r = simulate(params({ profile: p, lite: true, dt: 1, post: 0 }));
+      const c = r.reps.slice(0, k).map(x => Math.min(x.cap, state.intensity));
+      const sd = (1 - c.reduce((a, b) => a + b, 0) / (Math.max(...c) * k)) * 100;
+      if (!best || Math.abs(sd - sdsReal) < best.d) best = { p, d: Math.abs(sd - sdsReal) };
+    }
+    state.profile = best.p; $('#profile').value = best.p; schedule();
+  });
+}
+function updateRealOnChart() {
+  const n = lastMain.reps.length; const d = realPct(n);
+  charts.rep.data.datasets[3].data = d;
+  const minY = Math.min(...lastMain.reps.map(r => r.cap), effTarget(state.intensity), ...d.filter(v => v != null));
+  charts.rep.options.scales.y.min = Math.max(0, Math.floor((minY - 3) / 2) * 2);
+  charts.rep.update();
+}
+$('#realLa').addEventListener('change', updateRegistro);
+$('#clearReal').addEventListener('click', () => { sw.real = []; $('#realLa').value = ''; regRows = -1; renderRegistro(); updateRealOnChart(); });
+$('#fillPred').addEventListener('click', () => {
+  if (!dataMode()) { $('#swDist').focus(); return; }
+  sw.real = predTimes(lastMain).map(t => Math.round(t * 100) / 100); regRows = -1; renderRegistro(); updateRealOnChart();
+});
+$('#exportCsv').addEventListener('click', () => {
+  const res = lastMain, pred = predTimes(res), pct = realPct(res.reps.length);
+  const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines = [
+    ['Nadador', sw.name], ['Edad', state.age ?? ''], ['Distancia (m)', sw.dist ?? ''], ['Tiempo máximo (s)', sw.best ?? ''],
+    ['Serie', $('#setString').textContent], ['Perfil', state.profile], ['Lactato medido (mmol/L)', $('#realLa').value], [],
+    ['Repetición', 'Objetivo', 'Predicción (s)', 'Velocidad disponible modelo (%)', 'PCr inicial modelo (%)', 'Tiempo real (s)', '% vel. máx real']
+  ];
+  res.reps.forEach((r, i) => lines.push([i + 1, dataMode() ? state.work.toFixed(2) : r1(state.intensity) + ' %', pred[i] ? pred[i].toFixed(2) : '', r.cap.toFixed(1), r.pcr.toFixed(0), sw.real[i] ? sw.real[i].toFixed(2) : '', pct[i] ? pct[i].toFixed(1) : '']));
+  const csv = '\ufeff' + lines.map(l => l.map(q).join(';')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = `serie_${(sw.name || 'nadador').replace(/\s+/g, '_')}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+});
+
 /* ---------- Orquestación ---------- */
 function renderAll() {
   const ctx = renderMain();
@@ -515,6 +708,7 @@ function renderAll() {
   computeSens(); renderSens();
   computeHeat(); drawHeat();
   renderRecs(ctx);
+  renderRegistro();
 }
 let raf = null;
 function schedule() { if (raf) cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { raf = null; renderAll(); }); }

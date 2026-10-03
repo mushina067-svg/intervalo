@@ -29,6 +29,8 @@
   <nav class="topnav" aria-label="Secciones">
     <a href="#sim">Simulación</a>
     <a href="#registro">Registro</a>
+    <a href="#lactato">Lactato</a>
+    <a href="#sesion">Sesión</a>
     <a href="#recuperacion">Recuperación</a>
     <a href="#sensibilidad">Sensibilidad</a>
     <a href="#recs">Recomendaciones</a>
@@ -75,6 +77,39 @@
       <section class="group">
         <h2 class="group-title">Plantillas de serie</h2>
         <div class="presets" id="presets"></div>
+        <div class="preset-actions">
+          <button type="button" class="btn" id="newSerie">+ Crear mi serie</button>
+          <button type="button" class="btn ghost" id="expSeries">Exportar</button>
+          <button type="button" class="btn ghost" id="impSeries">Importar</button>
+          <input type="file" id="impFile" accept=".json,application/json" hidden>
+        </div>
+        <form class="serie-form" id="serieForm" hidden>
+          <div class="form-title" id="formTitle">Nueva serie</div>
+          <div class="field">
+            <label class="label" for="fName">Nombre de la serie</label>
+            <input type="text" id="fName" class="txt" placeholder="Ej.: Lunes velocidad" autocomplete="off">
+          </div>
+          <div class="row-2">
+            <div class="field"><label class="label" for="fReps">Repeticiones</label><input type="number" id="fReps" class="txt" min="1" max="40" inputmode="numeric"></div>
+            <div class="field"><label class="label" for="fDist">Distancia</label><div class="unit-wrap"><input type="number" id="fDist" class="txt" min="5" max="400" step="5" placeholder="opc." inputmode="numeric"><span>m</span></div></div>
+          </div>
+          <div class="row-2">
+            <div class="field"><label class="label" for="fWork">Duración (s)</label><input type="text" id="fWork" class="txt" placeholder="12 o 1:05" inputmode="decimal"></div>
+            <div class="field"><label class="label" for="fInt">Intensidad</label><div class="unit-wrap"><input type="number" id="fInt" class="txt" min="40" max="100" step="0.5" inputmode="decimal"><span>%</span></div></div>
+          </div>
+          <div class="row-2">
+            <div class="field"><label class="label" for="fRest">Descanso</label><input type="text" id="fRest" class="txt" placeholder="30 o 1:30" inputmode="decimal"></div>
+            <div class="field"><label class="label" for="fMode">Tipo</label><select id="fMode"><option value="pasivo">Pasivo</option><option value="activo">Activo</option></select></div>
+          </div>
+          <div class="field" id="fActField" hidden><label class="label" for="fAct">Intensidad del activo</label><div class="unit-wrap"><input type="number" id="fAct" class="txt" min="15" max="70" inputmode="numeric"><span>%</span></div></div>
+          <div class="form-err" id="formErr" role="alert"></div>
+          <div class="preset-actions">
+            <button type="submit" class="btn">Guardar y aplicar</button>
+            <button type="button" class="btn ghost" id="fCancel">Cancelar</button>
+          </div>
+          <div class="field-hint">Se rellena con la serie que tienes ahora en pantalla; cambia lo que quieras. Si cargaste datos del nadador, se usa su distancia y la intensidad define el tiempo objetivo.</div>
+        </form>
+        <div class="field-hint" id="storeNote"></div>
       </section>
 
       <section class="group">
@@ -196,13 +231,70 @@
           <tbody id="regBody"></tbody>
         </table>
       </div>
-      <div class="reg-extra">
-        <div class="field">
-          <label class="label" for="realLa">Lactato medido tras la serie</label>
-          <div class="unit-wrap"><input type="text" id="realLa" class="txt" placeholder="opcional" inputmode="decimal"><span>mmol/L</span></div>
+      <div class="reg-summary" id="regSummary" style="margin-top:1rem"></div>
+    </section>
+
+    <section class="card" id="lactato">
+      <div class="card-head">
+        <div>
+          <h2>Lactato medido</h2>
+          <p class="card-sub">Anota las lecturas de tu lactatómetro. El simulador las compara con su estimación en el mismo momento y puede calibrarse para este nadador. Consejo: mide a los 1, 3 y 5 min tras la última repetición (y 7 min en series largas), porque el pico en sangre suele llegar unos minutos después.</p>
         </div>
-        <div class="reg-summary" id="regSummary"></div>
+        <div class="btn-row">
+          <button type="button" class="btn ghost" id="laAdd">+ Añadir lectura</button>
+          <button type="button" class="btn ghost" id="laClear">Limpiar</button>
+        </div>
       </div>
+      <div class="la-basal">
+        <label class="label" for="laBasal">Lactato basal (antes de la serie)</label>
+        <div class="unit-wrap"><input type="text" id="laBasal" class="txt" placeholder="opcional, ej. 1.4" inputmode="decimal"><span>mmol/L</span></div>
+      </div>
+      <div class="table-wrap">
+        <table class="reg-table">
+          <thead><tr><th>Momento</th><th>Cuándo</th><th>Medido</th><th>Modelo</th><th>Diferencia</th><th></th></tr></thead>
+          <tbody id="laBody"></tbody>
+        </table>
+      </div>
+      <div class="reg-summary" id="laSummary" style="margin-top:1rem"></div>
+    </section>
+
+    <section class="card" id="sesion">
+      <div class="card-head">
+        <div>
+          <h2>Sesión completa</h2>
+          <p class="card-sub">Encadena todos los bloques del entrenamiento. Cada bloque empieza con la fosfocreatina y el lactato que dejó el anterior, así que la fatiga se acumula como en la piscina. Usa el perfil, la edad y la calibración de lactato del panel izquierdo. En descansos puedes escribir un valor (<code>4:00</code>) o la lista real separada por comas (<code>1:31, 1:32, 1:30</code>).</p>
+        </div>
+        <div class="btn-row">
+          <label class="btn" id="sbPdfBtn" for="sbPdf">Cargar PDF del Timer</label><input type="file" id="sbPdf" accept="application/pdf,.pdf" hidden>
+          <button type="button" class="btn ghost" id="sbAdd">+ Añadir bloque</button>
+          <button type="button" class="btn ghost" id="sbFromSerie">Añadir la serie actual</button>
+          <button type="button" class="btn ghost" id="sbExample">Ejemplo: Mariano viernes</button>
+          <button type="button" class="btn ghost" id="sbClear">Vaciar</button>
+          <button type="button" class="btn" id="sbCsv">Exportar CSV</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="reg-table sess-table">
+          <thead><tr><th>#</th><th>Bloque</th><th>Reps</th><th>Dist. (m)</th><th>Intens. %</th><th>Tiempo por rep</th><th>Descanso entre reps</th><th>Tipo</th><th>Tiempo máx. (opc.)</th><th>Tiempos reales (opc.)</th><th>Pausa al siguiente bloque</th><th>Tipo</th><th>Lactato medido</th><th>Min. post</th><th></th></tr></thead>
+          <tbody id="sbBody"></tbody>
+        </table>
+      </div>
+      <p class="field-hint" style="margin-top:.5rem">Tiempo por rep vacío = media de los tiempos reales, o tiempo máximo ÷ intensidad. Sin tiempo máximo, la comparación real se ancla a la primera repetición de cada bloque.</p>
+      <div class="import-note" id="sbImport" hidden></div>
+      <div class="reg-summary" id="sbSummary" style="margin-top:1rem"></div>
+      <div class="chart-head" style="margin-top:1.25rem"><h3 class="mini-title">PCr y lactato a lo largo de la sesión</h3>
+        <div class="legend"><span><i class="sw sw-pcr"></i>PCr</span><span><i class="sw sw-la"></i>Lactato en sangre</span><span><i class="sw sw-work"></i>Esfuerzo</span></div></div>
+      <div class="chart-box tall"><canvas id="sbTime" aria-label="PCr y lactato durante la sesión"></canvas></div>
+      <div class="chart-head" style="margin-top:1.25rem"><h3 class="mini-title">Velocidad por repetición en toda la sesión</h3>
+        <div class="legend"><span><i class="sw sw-cap"></i>Modelo</span><span><i class="sw sw-real"></i>Real</span></div></div>
+      <div class="chart-box"><canvas id="sbReps" aria-label="Velocidad por repetición"></canvas></div>
+      <div class="table-wrap" style="margin-top:1.25rem">
+        <table class="reg-table">
+          <thead><tr><th>Bloque</th><th>PCr al empezar</th><th>Lactato al empezar</th><th>Decremento modelo</th><th>Decremento real</th><th>Lactato pico</th><th>Lactato medido / modelo</th><th>Tiempos modelo</th></tr></thead>
+          <tbody id="sbResults"></tbody>
+        </table>
+      </div>
+      <div class="rec-grid" id="sbRecs" style="margin-top:1.25rem"></div>
     </section>
 
     <div class="grid-2" id="recuperacion">
@@ -220,7 +312,7 @@
         <div class="card-head">
           <div>
             <h2>Aclaramiento de lactato</h2>
-            <p class="card-sub">Lactato en sangre tras la serie completa: descanso pasivo frente a activo a la intensidad elegida.</p>
+            <p class="card-sub">Lactato en sangre tras la serie completa: descanso pasivo frente a activo a la intensidad elegida. Los puntos son tus lecturas del lactatómetro.</p>
           </div>
         </div>
         <div class="chart-box"><canvas id="laChart" aria-label="Curva de aclaramiento de lactato"></canvas></div>
@@ -297,7 +389,9 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="model.js"></script>
+<script src="vendor/pdf.min.js"></script>
 <script src="app.js"></script>
+<script src="session.js"></script>
 <script data-pplx-inline-edit>
 (function () {
   if (window === window.top) return;
@@ -305,6 +399,7 @@
   const allowedParentOrigins = ["https://www.perplexity.ai","https://perplexity.ai","https://testing.perplexity.ai","https://staging.perplexity.ai","https://*.preview.i.perplexity.ai","http://perplexity.localhost","http://localhost:1420","http://127.0.0.1:1420","http://localhost:3000","http://127.0.0.1:3000","http://localhost:5173","http://127.0.0.1:5173"];
   const MAX_FONT_BYTES = 500 * 1024;
   const MAX_TOTAL_FONT_BYTES = 2 * 1024 * 1024;
+  const DEFAULT_LINE_HEIGHT = 16;
   let scrollForwarding = false;
   let scrollRaf = 0;
   let trustedTopOrigin = null;
@@ -619,12 +714,26 @@
       return;
     }
 
+    if (event.data.type === "INLINE_EDIT_SCROLL_BY") {
+      const { deltaX, deltaY, deltaMode } = event.data;
+      if (!scrollForwarding || !Number.isFinite(deltaX) || !Number.isFinite(deltaY)) return;
+      if (deltaMode !== 0 && deltaMode !== 1 && deltaMode !== 2) return;
+      const lineHeight =
+        parseFloat(getComputedStyle(document.documentElement).lineHeight) || DEFAULT_LINE_HEIGHT;
+      const scaleX = deltaMode === 1 ? lineHeight : deltaMode === 2 ? window.innerWidth : 1;
+      const scaleY = deltaMode === 1 ? lineHeight : deltaMode === 2 ? window.innerHeight : 1;
+      // The selection overlay receives the wheel event instead of this iframe.
+      // Instant scrolling preserves trackpad deltas even on smooth-scroll sites.
+      window.scrollBy({ left: deltaX * scaleX, top: deltaY * scaleY, behavior: "instant" });
+      emitScroll();
+      return;
+    }
+
     if (event.data.type !== "INLINE_EDIT_CAPTURE_REQUEST") return;
 
     handleCaptureRequest(event);
   });
 })();
-
 
 </script></body>
 </html>

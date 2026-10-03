@@ -16,8 +16,10 @@ paintToggle();
 toggle.addEventListener('click', () => { theme = theme === 'dark' ? 'light' : 'dark'; root.setAttribute('data-theme', theme); paintToggle(); rebuildCharts(); });
 
 /* ---------- Estado ---------- */
-const state = { work: 12, intensity: 100, reps: 8, rest: 60, mode: 'pasivo', activeInt: 35, profile: 'mixto', goal: 'auto', age: null };
-const sw = { name: '', dist: null, best: null, target: null, real: [], realLa: null };
+const state = { work: 12, intensity: 100, reps: 8, rest: 60, mode: 'pasivo', activeInt: 35, profile: 'mixto', goal: 'auto', age: null, laScale: 1, laBase: null };
+const sw = { name: '', dist: null, best: null, target: null, real: [] };
+const lab = { rows: [{ type: 'post', at: 1, val: null }, { type: 'post', at: 3, val: null }, { type: 'post', at: 5, val: null }] };
+let lastLa = null;
 const dataMode = () => sw.dist > 0 && sw.best > 0;
 
 const PRESETS = [
@@ -78,16 +80,107 @@ function minRestFor(mode, thr) {
 /* ---------- Controles ---------- */
 const inputs = { work: $('#work'), intensity: $('#intensity'), reps: $('#reps'), rest: $('#rest'), activeInt: $('#activeInt') };
 const presetBox = $('#presets');
-PRESETS.forEach(p => {
-  const b = document.createElement('button');
-  b.type = 'button'; b.className = 'preset'; b.textContent = p.label; b.dataset.id = p.id; b.setAttribute('aria-pressed', 'false');
-  b.addEventListener('click', () => {
-    if (dataMode()) { const { work, intensity, ...rest } = p.s; Object.assign(state, { activeInt: 35 }, rest); sw.target = intensity >= 100 ? null : r1(sw.best * 100 / intensity * 100) / 100; $('#swTarget').value = sw.target ? fmtSec(sw.target) : ''; applyData(); }
-    else Object.assign(state, { activeInt: 35 }, p.s);
-    syncInputs(); markPreset(p.id); schedule();
+// Plantillas propias: se guardan en el navegador si es posible; siempre exportables a archivo
+let custom = [];
+function persist() { updateStoreNote(); }
+function updateStoreNote() {
+  const n = $('#storeNote'); if (!n) return;
+  n.textContent = custom.length ? 'Tus series se mantienen mientras la página esté abierta. Pulsa Exportar para guardarlas en un archivo e Importar para recuperarlas otro día.' : '';
+}
+function applyPreset(p, id) {
+  if (dataMode()) { const { work, intensity, ...rest } = p.s; Object.assign(state, { activeInt: 35 }, rest); sw.target = intensity >= 100 ? null : r1(sw.best * 100 / intensity * 100) / 100; $('#swTarget').value = sw.target ? fmtSec(sw.target) : ''; applyData(); }
+  else Object.assign(state, { activeInt: 35 }, p.s);
+  state.planDist = p.s.dist || null;
+  syncInputs(); markPreset(id); schedule();
+}
+function renderPresets() {
+  presetBox.innerHTML = '';
+  const all = [...PRESETS.map(p => ({ ...p, own: false })), ...custom.map(p => ({ ...p, own: true }))];
+  all.forEach(p => {
+    const wrap = document.createElement('span'); wrap.className = 'preset-wrap' + (p.own ? ' own' : '');
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'preset'; b.textContent = p.label; b.dataset.id = p.id; b.setAttribute('aria-pressed', 'false');
+    b.title = `${p.s.reps} × ${fmtTime(p.s.work)} @ ${p.s.intensity} % · desc. ${fmtClock(p.s.rest)} ${p.s.mode}`;
+    b.addEventListener('click', () => applyPreset(p, p.id));
+    wrap.appendChild(b);
+    if (p.own) {
+      const e = document.createElement('button'); e.type = 'button'; e.className = 'preset-x'; e.textContent = '✎'; e.setAttribute('aria-label', 'Editar ' + p.label);
+      e.addEventListener('click', () => openForm(p));
+      const x = document.createElement('button'); x.type = 'button'; x.className = 'preset-x'; x.textContent = '×'; x.setAttribute('aria-label', 'Eliminar ' + p.label);
+      x.addEventListener('click', () => { if (confirm(`¿Eliminar la serie "${p.label}"?`)) { custom = custom.filter(c => c.id !== p.id); persist(); renderPresets(); } });
+      wrap.append(e, x);
+    }
+    presetBox.appendChild(wrap);
   });
-  presetBox.appendChild(b);
+  updateStoreNote();
+}
+// Formulario
+const form = $('#serieForm');
+let editingId = null;
+function openForm(p) {
+  editingId = p ? p.id : null;
+  const src = p ? p.s : { reps: state.reps, work: state.work, intensity: r1(state.intensity), rest: state.rest, mode: state.mode, activeInt: state.activeInt, dist: dataMode() ? sw.dist : null };
+  $('#fName').value = p ? p.label : '';
+  $('#fReps').value = src.reps;
+  $('#fDist').value = src.dist || '';
+  $('#fWork').value = src.work < 60 ? r1(src.work) : fmtClock(src.work);
+  $('#fInt').value = src.intensity;
+  $('#fRest').value = src.rest < 60 ? src.rest : fmtClock(src.rest);
+  $('#fMode').value = src.mode;
+  $('#fAct').value = src.activeInt || 35;
+  $('#fActField').hidden = src.mode !== 'activo';
+  $('#formTitle').textContent = p ? 'Editar serie' : 'Nueva serie';
+  $('#formErr').textContent = '';
+  form.hidden = false; $('#newSerie').hidden = true;
+  $('#fName').focus();
+}
+function closeForm() { form.hidden = true; $('#newSerie').hidden = false; editingId = null; }
+$('#newSerie').addEventListener('click', () => openForm(null));
+$('#fCancel').addEventListener('click', closeForm);
+$('#fMode').addEventListener('change', e => { $('#fActField').hidden = e.target.value !== 'activo'; });
+form.addEventListener('submit', e => {
+  e.preventDefault();
+  const reps = parseInt($('#fReps').value, 10);
+  const work = parseTime($('#fWork').value);
+  const I = parseFloat(String($('#fInt').value).replace(',', '.'));
+  const rest = parseTime($('#fRest').value);
+  const dist = parseFloat($('#fDist').value);
+  const errs = [];
+  if (!(reps >= 1 && reps <= 40)) errs.push('repeticiones entre 1 y 40');
+  if (!(work >= 2 && work <= 240)) errs.push('duración entre 2 s y 4:00');
+  if (!(I >= 40 && I <= 100)) errs.push('intensidad entre 40 y 100 %');
+  if (!(rest >= 5 && rest <= 900)) errs.push('descanso entre 5 s y 15:00');
+  if (errs.length) { $('#formErr').textContent = 'Revisa: ' + errs.join(', ') + '.'; return; }
+  const mode = $('#fMode').value;
+  const s = { reps, work, intensity: I, rest, mode, activeInt: mode === 'activo' ? clamp(parseFloat($('#fAct').value) || 35, 15, 70) : 35, dist: dist > 0 ? dist : null };
+  const auto = `${reps}×${s.dist ? s.dist + ' m' : fmtTime(work)} / ${fmtClock(rest)}`;
+  const label = $('#fName').value.trim() ? `${$('#fName').value.trim()}` : auto;
+  const id = editingId || 'c' + Date.now();
+  const item = { id, label, s };
+  const i = custom.findIndex(c => c.id === id);
+  if (i >= 0) custom[i] = item; else custom.push(item);
+  persist(); renderPresets(); closeForm(); applyPreset(item, id);
 });
+// Exportar / importar plantillas
+$('#expSeries').addEventListener('click', () => {
+  if (!custom.length) { $('#storeNote').textContent = 'Aún no has creado series propias.'; return; }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(custom, null, 2)], { type: 'application/json' }));
+  a.download = 'mis_series_intervalo.json'; document.body.appendChild(a); a.click(); a.remove();
+});
+$('#impSeries').addEventListener('click', () => $('#impFile').click());
+$('#impFile').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const arr = JSON.parse(await f.text());
+    const ok = arr.filter(p => p && p.label && p.s && p.s.reps && p.s.work && p.s.rest && p.s.intensity);
+    ok.forEach(p => { p.id = p.id || 'c' + Math.random().toString(36).slice(2); const i = custom.findIndex(c => c.id === p.id); if (i >= 0) custom[i] = p; else custom.push(p); });
+    persist(); renderPresets();
+    $('#storeNote').textContent = `${ok.length} series importadas.`;
+  } catch (err) { $('#storeNote').textContent = 'No se pudo leer el archivo.'; }
+  e.target.value = '';
+});
+renderPresets();
 function markPreset(id) { $$('.preset').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.id === id))); }
 function setFill(el) { const p = (el.value - el.min) / (el.max - el.min) * 100; el.style.setProperty('--fill', p + '%'); }
 function syncInputs() {
@@ -111,9 +204,9 @@ function updateLabels() {
   $('#lockNote').hidden = !dm;
   for (const k in inputs) setFill(inputs[k]);
   const who = [sw.name, state.age ? state.age + ' años' : ''].filter(Boolean).join(', ');
-  const dist = dm ? `${sw.dist} m` : `≈${approxDist(state.work)} m`;
+  const dist = dm ? `${sw.dist} m` : state.planDist ? `${state.planDist} m` : `≈${approxDist(state.work)} m`;
   const tgt = dm ? ` en ${fmtSec(state.work)}` : '';
-  $('#setString').textContent = `${who ? who + ' · ' : ''}${state.reps} × ${dist}${tgt} (${fmtTime(state.work)}) @ ${r1(state.intensity)} % · desc. ${fmtClock(state.rest)} ${state.mode}${state.mode === 'activo' ? ' ' + state.activeInt + ' %' : ''} · ${ratioStr(state.work, state.rest)}`;
+  $('#setString').textContent = `${who ? who + ' · ' : ''}${state.reps} × ${dist}${tgt} (${state.work < 60 ? r1(state.work) + ' s' : fmtClock(state.work)}) @ ${r1(state.intensity)} % · desc. ${fmtClock(state.rest)} ${state.mode}${state.mode === 'activo' ? ' ' + state.activeInt + ' %' : ''} · ${ratioStr(state.work, state.rest)}`;
   // resumen de datos
   const ds = $('#dataSummary');
   ds.hidden = !dm; $('#clearData').hidden = !(dm || sw.name || state.age);
@@ -124,7 +217,7 @@ function updateLabels() {
       (state.age ? `<div style="grid-column:1/-1"><span>Ajuste por edad: ${ag.label}</span></div>` : '');
   }
 }
-for (const k in inputs) inputs[k].addEventListener('input', e => { state[k] = +e.target.value; markPreset(null); updateLabels(); schedule(); });
+for (const k in inputs) inputs[k].addEventListener('input', e => { state[k] = +e.target.value; if (k === 'work') state.planDist = null; markPreset(null); updateLabels(); schedule(); });
 // Casillas editables junto a cada control
 const VALS = {
   workOut: { k: 'work', parse: parseTime, min: 2, max: 240 },
@@ -258,7 +351,8 @@ function buildCharts() {
   o.plugins.legend = { display: true, position: 'top', align: 'end', labels: { color: muted, boxWidth: 14, boxHeight: 3, font: { size: 11 } } };
   charts.pcr = new Chart($('#pcrChart'), { type: 'line', data: { datasets: [
     { label: 'Pasivo', data: [], borderColor: pcr, borderWidth: 2.4, tension: 0.2 },
-    { label: 'Activo', data: [], borderColor: muted, borderDash: [5, 4], borderWidth: 2, tension: 0.2 }
+    { label: 'Activo', data: [], borderColor: muted, borderDash: [5, 4], borderWidth: 2, tension: 0.2 },
+    { label: 'Medido', data: [], type: 'scatter', pointRadius: 6, pointHoverRadius: 7, pointBackgroundColor: css('--color-text'), pointBorderColor: css('--color-surface'), pointBorderWidth: 2 }
   ] }, options: o });
 
   // Lactato
@@ -271,7 +365,8 @@ function buildCharts() {
   o.plugins.legend = { display: true, position: 'top', align: 'end', labels: { color: muted, boxWidth: 14, boxHeight: 3, font: { size: 11 } } };
   charts.la = new Chart($('#laChart'), { type: 'line', data: { datasets: [
     { label: 'Pasivo', data: [], borderColor: la, borderWidth: 2.4, tension: 0.2 },
-    { label: 'Activo', data: [], borderColor: muted, borderDash: [5, 4], borderWidth: 2, tension: 0.2 }
+    { label: 'Activo', data: [], borderColor: muted, borderDash: [5, 4], borderWidth: 2, tension: 0.2 },
+    { label: 'Medido', data: [], type: 'scatter', pointRadius: 6, pointHoverRadius: 7, pointBackgroundColor: css('--color-text'), pointBorderColor: css('--color-surface'), pointBorderWidth: 2 }
   ] }, options: o });
 
   // Sensibilidad
@@ -287,7 +382,7 @@ function buildCharts() {
     { label: 'Tu serie', data: [], type: 'scatter', pointRadius: 7, pointHoverRadius: 8, pointBackgroundColor: css('--color-surface'), pointBorderColor: css('--color-text'), pointBorderWidth: 2.5 }
   ] }, options: o });
 }
-function rebuildCharts() { Object.values(charts).forEach(c => c.destroy()); buildCharts(); renderAll(true); }
+function rebuildCharts() { Object.values(charts).forEach(c => c.destroy()); buildCharts(); renderAll(true); document.dispatchEvent(new Event('sim:theme')); }
 
 /* ---------- Render principal ---------- */
 function renderMain() {
@@ -363,6 +458,7 @@ function renderMain() {
     ['< 4 mmol/L pas. / act.', `${fmtT(below(laRes.pasivo, 4), '> 15′')} / ${fmtT(below(laRes.activo, 4), '> 15′')}`]
   ].map(([a, b]) => `<div><span>${a}</span><b>${b}</b></div>`).join('');
 
+  lastLa = { r: laRes[state.mode], endT };
   return { res, cls, thr, laRes, pcrCurves, endT };
 }
 function fmtT(t, none = '> 8′') { return t == null ? none : fmtClock(t); }
@@ -644,12 +740,10 @@ function updateRegistro() {
   const k = vals.length;
   const capsK = res.reps.slice(0, k).map(r => Math.min(r.cap, state.intensity));
   const sdsModel = (1 - capsK.reduce((a, b) => a + b, 0) / (Math.max(...capsK) * k)) * 100;
-  const la = parseFloat(String($('#realLa').value).replace(',', '.'));
   const chips = [
     ['Decremento real', sdsReal.toFixed(1) + ' %'], ['Decremento modelo', sdsModel.toFixed(1) + ' %'],
     ['Caída 1.ª → última', (fiReal >= 0 ? '+' : '') + fiReal.toFixed(1) + ' %'], ['Mejor repetición', fmtSec(bestRep) + ' s']
   ];
-  if (!isNaN(la)) chips.push(['Lactato real / modelo', `${la.toFixed(1)} / ${res.peakLa.toFixed(1)}`]);
   const gap = sdsReal - sdsModel;
   let msg;
   if (Math.abs(gap) <= 1) msg = 'Los tiempos reales coinciden con el modelo: el perfil elegido representa bien a este nadador.';
@@ -675,8 +769,7 @@ function updateRealOnChart() {
   charts.rep.options.scales.y.min = Math.max(0, Math.floor((minY - 3) / 2) * 2);
   charts.rep.update();
 }
-$('#realLa').addEventListener('change', updateRegistro);
-$('#clearReal').addEventListener('click', () => { sw.real = []; $('#realLa').value = ''; regRows = -1; renderRegistro(); updateRealOnChart(); });
+$('#clearReal').addEventListener('click', () => { sw.real = []; regRows = -1; renderRegistro(); updateRealOnChart(); });
 $('#fillPred').addEventListener('click', () => {
   if (!dataMode()) { $('#swDist').focus(); return; }
   sw.real = predTimes(lastMain).map(t => Math.round(t * 100) / 100); regRows = -1; renderRegistro(); updateRealOnChart();
@@ -686,7 +779,7 @@ $('#exportCsv').addEventListener('click', () => {
   const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const lines = [
     ['Nadador', sw.name], ['Edad', state.age ?? ''], ['Distancia (m)', sw.dist ?? ''], ['Tiempo máximo (s)', sw.best ?? ''],
-    ['Serie', $('#setString').textContent], ['Perfil', state.profile], ['Lactato medido (mmol/L)', $('#realLa').value], [],
+    ['Serie', $('#setString').textContent], ['Perfil', state.profile], ['Lactato basal (mmol/L)', state.laBase ?? ''], ['Calibración lactato', state.laScale.toFixed(2)], ...lab.rows.filter(r => r.val > 0).map(r => ['Lactato ' + laLabel(r) + ' (mmol/L)', r.val, 'modelo', (laModelAt(r) ?? 0).toFixed(1)]), [],
     ['Repetición', 'Objetivo', 'Predicción (s)', 'Velocidad disponible modelo (%)', 'PCr inicial modelo (%)', 'Tiempo real (s)', '% vel. máx real']
   ];
   res.reps.forEach((r, i) => lines.push([i + 1, dataMode() ? state.work.toFixed(2) : r1(state.intensity) + ' %', pred[i] ? pred[i].toFixed(2) : '', r.cap.toFixed(1), r.pcr.toFixed(0), sw.real[i] ? sw.real[i].toFixed(2) : '', pct[i] ? pct[i].toFixed(1) : '']));
@@ -696,6 +789,103 @@ $('#exportCsv').addEventListener('click', () => {
   a.download = `serie_${(sw.name || 'nadador').replace(/\s+/g, '_')}.csv`;
   document.body.appendChild(a); a.click(); a.remove();
 });
+
+/* ---------- Lactato medido ---------- */
+const numv = (v) => { const x = parseFloat(String(v ?? '').replace(',', '.')); return isNaN(x) ? null : x; };
+function laTime(row) {
+  const L = lastLa; if (!L) return null;
+  if (row.type === 'post') return L.endT + row.at * 60;
+  const n = clamp(Math.round(row.at), 1, state.reps);
+  const endRep = n * state.work + (n - 1) * state.rest;
+  return n >= state.reps ? endRep + 60 : endRep + Math.min(45, state.rest * 0.9);
+}
+function laModelAt(row, r = lastLa && lastLa.r) {
+  const t = laTime(row); if (t == null || !r) return null;
+  const p = r.series.find(q => q.t >= t - 1e-6); return p ? p.la : r.series[r.series.length - 1].la;
+}
+const laLabel = (row) => row.type === 'post' ? `min ${row.at} post-serie` : `tras rep. ${row.at}`;
+let laRows = -1;
+function renderLab() {
+  const body = $('#laBody');
+  if (laRows !== lab.rows.length) {
+    body.innerHTML = lab.rows.map((r, i) => `<tr>
+      <td><select class="txt" data-f="type" data-i="${i}"><option value="post"${r.type === 'post' ? ' selected' : ''}>Post-serie</option><option value="rep"${r.type === 'rep' ? ' selected' : ''}>Tras repetición</option></select></td>
+      <td><span class="unit-wrap" style="display:inline-block"><input type="number" class="txt sm" data-f="at" data-i="${i}" value="${r.at}" min="${r.type === 'post' ? 0 : 1}" step="1"><span data-u="${i}">${r.type === 'post' ? 'min' : 'rep'}</span></span></td>
+      <td><input type="text" class="txt sm" data-f="val" data-i="${i}" inputmode="decimal" placeholder="mmol/L" value="${r.val ?? ''}"></td>
+      <td data-c="mod"></td><td data-c="dif"></td>
+      <td><button type="button" class="icon-btn" data-del="${i}" aria-label="Eliminar lectura">×</button></td></tr>`).join('');
+    laRows = lab.rows.length;
+    $$('[data-f]', body).forEach(el => el.addEventListener('change', () => {
+      const i = +el.dataset.i, f = el.dataset.f, row = lab.rows[i];
+      if (f === 'type') { row.type = el.value; row.at = row.type === 'post' ? 3 : Math.min(state.reps, Math.max(1, Math.round(state.reps / 2))); laRows = -1; renderLab(); return; }
+      if (f === 'at') row.at = Math.max(row.type === 'post' ? 0 : 1, numv(el.value) ?? row.at);
+      if (f === 'val') { const v = numv(el.value); row.val = v > 0 && v < 35 ? v : null; el.classList.toggle('invalid', el.value.trim() !== '' && row.val == null); }
+      updateLab();
+    }));
+    $$('[data-del]', body).forEach(b => b.addEventListener('click', () => { lab.rows.splice(+b.dataset.del, 1); laRows = -1; renderLab(); }));
+  }
+  updateLab();
+}
+function updateLab() {
+  const rows = $$('#laBody tr');
+  lab.rows.forEach((r, i) => {
+    const tr = rows[i]; if (!tr) return;
+    const mv = laModelAt(r);
+    tr.querySelector('[data-c="mod"]').textContent = mv == null ? '—' : mv.toFixed(1);
+    const dc = tr.querySelector('[data-c="dif"]');
+    if (r.val > 0 && mv != null) { const d = r.val - mv; dc.textContent = (d >= 0 ? '+' : '') + d.toFixed(1); dc.className = Math.abs(d) < 1 ? 'good' : d > 0 ? 'bad' : 'warn'; }
+    else { dc.textContent = '—'; dc.className = ''; }
+  });
+  // puntos en el gráfico
+  const pts = lab.rows.filter(r => r.val > 0).map(r => ({ x: laTime(r), y: r.val }));
+  if (state.laBase > 0) pts.unshift({ x: 0, y: state.laBase });
+  charts.la.data.datasets[2].data = pts;
+  charts.la.update('none');
+  // resumen
+  const box = $('#laSummary');
+  const meas = lab.rows.filter(r => r.val > 0);
+  const calibChip = state.laScale !== 1 ? `<div class="calib-chip">Modelo calibrado: producción de lactato ×${state.laScale.toFixed(2)} <button type="button" id="laReset">quitar</button></div>` : '';
+  if (!meas.length) { box.innerHTML = `<p>Escribe al menos una lectura para compararla con el modelo.</p>${calibChip}`; bindReset(); return; }
+  const pk = meas.reduce((a, b) => b.val > a.val ? b : a);
+  const mPk = Math.max(...meas.map(r => laModelAt(r) ?? 0));
+  const zone = pk.val < 4 ? 'aeróbica / aláctica' : pk.val < 8 ? 'mixta' : pk.val < 12 ? 'glucolítica alta' : 'tolerancia máxima';
+  const cls = classify(state.work, state.intensity);
+  let fit = '';
+  if (cls.key === 'alp' && pk.val > 6) fit = 'Para un trabajo de potencia aláctica, el lactato es alto: alarga la pausa o acorta el esfuerzo.';
+  else if (cls.key === 'glc' && pk.val < 8) fit = 'Para tolerancia láctica, el estímulo se quedó corto: acorta la pausa o sube repeticiones.';
+  else if (cls.key === 'alc' && pk.val > 10) fit = 'Para velocidad repetida, el lactato es alto: la serie se está yendo hacia tolerancia láctica. Si buscas velocidad, alarga la pausa.';
+  else if (cls.key === 'aer' && pk.val > 6) fit = 'Para un trabajo aeróbico, el lactato está por encima del umbral: baja un poco la intensidad.';
+  else fit = `La lectura encaja con el objetivo (${cls.name.toLowerCase()}).`;
+  const post = meas.filter(r => r.type === 'post');
+  const peakNote = post.length >= 2 && post[post.length - 1] === pk && pk.at < 7 ? ' Tu valor más alto es la última lectura: es posible que el pico real llegara después; añade una medición más tarde.' : '';
+  const errs = meas.map(r => r.val - (laModelAt(r) ?? 0));
+  const bias = errs.reduce((a, b) => a + b, 0) / errs.length;
+  const fitMsg = Math.abs(bias) < 1 ? 'El modelo coincide con tus mediciones.' : bias > 0 ? `El nadador produce más lactato que el modelo (+${bias.toFixed(1)} mmol/L de media).` : `El nadador produce menos lactato que el modelo (${bias.toFixed(1)} mmol/L de media).`;
+  box.innerHTML = `<div class="chips">
+      <div class="chip">Pico medido<b>${pk.val.toFixed(1)} mmol/L</b></div>
+      <div class="chip">Modelo en esos momentos<b>${mPk.toFixed(1)} mmol/L</b></div>
+      <div class="chip">Zona medida<b>${zone}</b></div>
+      ${state.laBase > 0 ? `<div class="chip">Δ sobre basal<b>+${(pk.val - state.laBase).toFixed(1)} mmol/L</b></div>` : ''}
+    </div>
+    <p>${fitMsg} ${fit}${peakNote}</p>
+    ${Math.abs(bias) >= 1 ? '<button type="button" class="btn ghost" id="laCalib" style="margin-top:.5rem">Calibrar modelo con estas lecturas</button>' : ''}
+    ${calibChip}`;
+  const cb = $('#laCalib');
+  if (cb) cb.addEventListener('click', () => {
+    let best = { s: 1, e: Infinity };
+    for (let sc = 0.2; sc <= 2.51; sc += 0.05) {
+      const r = simulate(params({ laScale: sc, post: 900, dt: 1 }));
+      const e = meas.reduce((acc, row) => { const d = row.val - laModelAt(row, r); return acc + d * d; }, 0);
+      if (e < best.e) best = { s: sc, e };
+    }
+    state.laScale = Math.round(best.s * 100) / 100; schedule();
+  });
+  bindReset();
+}
+function bindReset() { const b = $('#laReset'); if (b) b.addEventListener('click', () => { state.laScale = 1; schedule(); }); }
+$('#laAdd').addEventListener('click', () => { const last = lab.rows[lab.rows.length - 1]; lab.rows.push({ type: 'post', at: last && last.type === 'post' ? last.at + 2 : 3, val: null }); laRows = -1; renderLab(); });
+$('#laClear').addEventListener('click', () => { lab.rows = [{ type: 'post', at: 1, val: null }, { type: 'post', at: 3, val: null }, { type: 'post', at: 5, val: null }]; state.laBase = null; $('#laBasal').value = ''; laRows = -1; schedule(); });
+$('#laBasal').addEventListener('change', e => { const v = numv(e.target.value); state.laBase = v > 0 && v < 10 ? v : null; e.target.classList.toggle('invalid', e.target.value.trim() !== '' && state.laBase == null); schedule(); });
 
 /* ---------- Orquestación ---------- */
 function renderAll() {
@@ -709,10 +899,13 @@ function renderAll() {
   computeHeat(); drawHeat();
   renderRecs(ctx);
   renderRegistro();
+  renderLab();
+  document.dispatchEvent(new Event('sim:render'));
 }
 let raf = null;
 function schedule() { if (raf) cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { raf = null; renderAll(); }); }
 
+window.SimApp = { schedule: () => schedule(), state, sw, parseTime, fmtSec, fmtClock, css, baseOpts, axisTitle, effTarget };
 buildCharts();
 markPreset('s25');
 syncInputs();
